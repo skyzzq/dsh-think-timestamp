@@ -6,7 +6,7 @@
   "author": "skyzzq",
   "repository": {
     "type": "git",
-    "url": "https://github.com/skyzzq/dsh-think-timestamp.git"
+    "url": "git+https://github.com/skyzzq/dsh-think-timestamp.git"
   },
   "homepage": "https://github.com/skyzzq/dsh-think-timestamp#readme",
   "bugs": {
