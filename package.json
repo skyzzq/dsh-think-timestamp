@@ -1,0 +1,52 @@
+{
+  "name": "dsh-think-timestamp",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 插件：纯前端交互思考时间戳引擎。不依赖具体模型，当 DSH 前端输出思考内容时自动触发高精度东八区物理时间戳展示与控制台输出，思考完成后完整保留思考时间戳与耗时。",
+  "license": "MIT",
+  "author": "skyzzq",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/skyzzq/dsh-think-timestamp.git"
+  },
+  "homepage": "https://github.com/skyzzq/dsh-think-timestamp#readme",
+  "bugs": {
+    "url": "https://github.com/skyzzq/dsh-think-timestamp/issues"
+  },
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "thinking",
+    "reasoning",
+    "timestamp",
+    "frontend"
+  ]
+}

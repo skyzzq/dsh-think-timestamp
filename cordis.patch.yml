@@ -1,0 +1,7 @@
+# dsh-think-timestamp bundle patch
+# 独立根据思考输出打印时间戳（完全脱离提示词）
+- insert:
+    - id: think-timestamp
+      name: 'dsh-think-timestamp'
+    - id: thinking-timestamp
+      name: 'dsh-thinking-timestamp'
