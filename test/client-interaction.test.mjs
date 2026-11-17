@@ -548,3 +548,66 @@ test('5. Legacy node without any record: no fabricated multi-hour duration', asy
   // 绝不允许凭空编造耗时
   assert.equal(pill.textContent, '⏱️ 10:30:00');
 });
+
+test('6. Multiple reasoning blocks under one message key must not share a record', async () => {
+  setupMockDom();
+
+  let mod = null;
+  globalThis.window.__ModuleLoader__ = {
+    load(def) {
+      mod = def.factory();
+    }
+  };
+
+  await import('../lib/client.js?v=6');
+
+  function buildBlock(nodeKey, text) {
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('data-chat-node-key', nodeKey);
+
+    const thinkEl = document.createElement('div');
+    thinkEl.setAttribute('data-variant', 'think');
+    thinkEl.setAttribute('data-state', 'ok');
+
+    const row = document.createElement('div');
+    row.className = 'VJlF5q_row';
+    const title = document.createElement('div');
+    title.className = 'VJlF5q_title';
+    title.textContent = '思考过程';
+    row.appendChild(title);
+    thinkEl.appendChild(row);
+
+    const body = document.createElement('div');
+    body.className = 'VJlF5q_thinkBody';
+    const p = document.createElement('p');
+    p.textContent = text;
+    body.appendChild(p);
+    thinkEl.appendChild(body);
+
+    wrapper.appendChild(thinkEl);
+    return { wrapper, thinkEl, row, para: p };
+  }
+
+  // 同一条消息（同一个 data-chat-node-key）下两个独立思考块
+  const a = buildBlock('msg-shared', '第一段推理');
+  const b = buildBlock('msg-shared', '第二段推理');
+  document.body.appendChild(a.wrapper);
+  document.body.appendChild(b.wrapper);
+
+  mod.apply({ effect: () => {} });
+
+  const startA = a.thinkEl.getAttribute('data-think-start');
+  const startB = b.thinkEl.getAttribute('data-think-start');
+  assert.match(startA, /^\d{2}:\d{2}:\d{2}$/, 'first block must get a stamp');
+  assert.match(startB, /^\d{2}:\d{2}:\d{2}$/, 'second block must get its own stamp');
+
+  // 两个块各自独立记录，不能互相覆盖
+  const raw = globalThis.window.localStorage.getItem('dsh-think-ts:v1');
+  const parsed = JSON.parse(raw);
+  const keys = Object.keys(parsed.records).filter((k) => k.startsWith('k:msg-shared'));
+  assert.equal(keys.length, 2, 'each reasoning block needs its own record, got: ' + keys.join(','));
+
+  // 各自的段落时间戳也必须独立
+  assert.ok(a.para.getAttribute('data-dsh-think-time'));
+  assert.ok(b.para.getAttribute('data-dsh-think-time'));
+});
