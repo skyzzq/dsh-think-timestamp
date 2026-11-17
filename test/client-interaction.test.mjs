@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import fs from 'node:fs';
 
 class MockNode {
   constructor(nodeType, nodeName) {
@@ -710,4 +711,17 @@ test('7. Leave mid-thinking & return: backlogged paragraphs get distinct stamps'
 
   // 释放心跳与观察器，否则事件循环不会退出
   for (const fn of secondCleanups) fn();
+});
+
+test('8. Register exactly one client module id matching the bundle name', async () => {
+  const src = await fs.promises.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+
+  // DSH 的启动冻结检查按脚本注册的 id 校验；多注册一个别名会被判定为
+  // “不再注册原 id”，热重载被永久拒绝，页面一直跑旧脚本。
+  const ids = [...src.matchAll(/id:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
+  assert.deepEqual(
+    ids,
+    ['dsh-thinking-timestamp'],
+    'client bundle must register exactly one id equal to the package/bundle name, got: ' + ids.join(', ')
+  );
 });
