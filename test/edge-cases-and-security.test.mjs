@@ -221,8 +221,16 @@ function setupMockEnvironment() {
 
   globalThis.document = document;
   globalThis.MutationObserver = MockMutationObserver;
+  const lsData = new Map();
+  const localStorage = {
+    getItem(k) { return lsData.has(k) ? lsData.get(k) : null; },
+    setItem(k, v) { lsData.set(k, String(v)); },
+    removeItem(k) { lsData.delete(k); }
+  };
+
   globalThis.window = {
     document,
+    localStorage,
     requestAnimationFrame(fn) { return setTimeout(fn, 16); },
     cancelAnimationFrame(id) { clearTimeout(id); }
   };
@@ -384,7 +392,13 @@ test('Security 5: External Malicious Attribute Tampering Resilience', async () =
   assert.ok(pill);
   // 验证非法耗时被过滤净化，绝不呈现 "NaNs"
   assert.ok(!pill.textContent.includes('NaN'));
-  assert.match(pill.textContent, /⏱️ 12:00:00 \(耗时 \d+\.\d+s\)/);
+  assert.ok(!pill.textContent.includes('injection'));
+  // 篡改值既不能污染显示，也不能被当成合法耗时沿用。
+  // 该节点无任何真实耗时来源，因此只保留起始时间戳，不编造数字。
+  assert.equal(pill.textContent, '⏱️ 12:00:00');
+  // 落盘记录同样不得携带被污染的值
+  const stored = globalThis.window.localStorage.getItem('dsh-think-ts:v1');
+  assert.ok(!stored || !stored.includes('injection'));
 
   if (cleanup) cleanup();
 });
