@@ -611,3 +611,103 @@ test('6. Multiple reasoning blocks under one message key must not share a record
   assert.ok(a.para.getAttribute('data-dsh-think-time'));
   assert.ok(b.para.getAttribute('data-dsh-think-time'));
 });
+
+test('7. Leave mid-thinking & return: backlogged paragraphs get distinct stamps', async () => {
+  setupMockDom();
+
+  let mod1 = null;
+  globalThis.window.__ModuleLoader__ = {
+    load(def) {
+      mod1 = def.factory();
+    }
+  };
+
+  await import('../lib/client.js?v=7a');
+
+  function build(nodeKey, state) {
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('data-chat-node-key', nodeKey);
+    const thinkEl = document.createElement('div');
+    thinkEl.setAttribute('data-variant', 'think');
+    thinkEl.setAttribute('data-state', state);
+    const row = document.createElement('div');
+    row.className = 'VJlF5q_row';
+    const title = document.createElement('div');
+    title.className = 'VJlF5q_title';
+    title.textContent = '思考过程';
+    row.appendChild(title);
+    thinkEl.appendChild(row);
+    const body = document.createElement('div');
+    body.className = 'VJlF5q_thinkBody';
+    thinkEl.appendChild(body);
+    wrapper.appendChild(thinkEl);
+    return { wrapper, thinkEl, row, body };
+  }
+
+  function addPara(host, text) {
+    const p = document.createElement('p');
+    p.textContent = text;
+    host.body.appendChild(p);
+    return p;
+  }
+
+  // ── 第一次：思考进行中，已产出 1 段 ──────────────────────────────
+  const first = build('msg-mid', 'running');
+  const p1 = addPara(first, '第一段：解析需求');
+  document.body.appendChild(first.wrapper);
+
+  const cleanups = [];
+  mod1.apply({ effect: (fn) => { cleanups.push(fn()); } });
+
+  const stamp1 = p1.getAttribute('data-dsh-think-time');
+  assert.match(stamp1, /^\d{2}:\d{2}:\d{2}$/, 'first paragraph stamped while visible');
+
+  await new Promise((r) => setTimeout(r, 60));
+
+  // ── 切走：卸载插件并销毁子树（思考仍在后台继续）─────────────────
+  for (const fn of cleanups) fn();
+  document.body.removeChild(first.wrapper);
+
+  // ── 切回：DOM 重建，且缺席期间累积了 3 段新内容 ────────────────
+  let mod2 = null;
+  globalThis.window.__ModuleLoader__ = {
+    load(def) {
+      mod2 = def.factory();
+    }
+  };
+  await import('../lib/client.js?v=7b');
+
+  const second = build('msg-mid', 'running');
+  const r1 = addPara(second, '第一段：解析需求');
+  const r2 = addPara(second, '第二段：设计存储结构');
+  const r3 = addPara(second, '第三段：验证边界条件');
+  const r4 = addPara(second, '第四段：收敛结论');
+  document.body.appendChild(second.wrapper);
+
+  const secondCleanups = [];
+  mod2.apply({ effect: (fn) => { secondCleanups.push(fn()); } });
+  assert.equal(r1.getAttribute('data-dsh-think-time'), stamp1, 'existing paragraph keeps its stamp');
+
+  // 缺席期间补录的段落必须各不相同
+  const backlog = [r2, r3, r4].map((p) => p.getAttribute('data-dsh-think-time'));
+  for (const s of backlog) {
+    assert.match(s, /^\d{2}:\d{2}:\d{2}$/, 'backlogged paragraph must be stamped');
+  }
+  assert.equal(
+    new Set(backlog).size,
+    backlog.length,
+    'backlogged paragraphs must not share one identical timestamp, got: ' + backlog.join(', ')
+  );
+
+  // 并且按出现顺序单调递增
+  const toSec = (s) => {
+    const [h, m, sec] = s.split(':').map(Number);
+    return h * 3600 + m * 60 + sec;
+  };
+  assert.ok(toSec(backlog[0]) >= toSec(stamp1), 'backlog must not precede the earlier paragraph');
+  assert.ok(toSec(backlog[1]) > toSec(backlog[0]), 'second backlog paragraph must be later');
+  assert.ok(toSec(backlog[2]) > toSec(backlog[1]), 'third backlog paragraph must be later');
+
+  // 释放心跳与观察器，否则事件循环不会退出
+  for (const fn of secondCleanups) fn();
+});
