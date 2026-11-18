@@ -42,7 +42,9 @@ class MockNode {
   }
 
   getAttribute(k) {
-    return this.attributes.get(k) || null;
+    // 真实 DOM 里布尔属性（如 data-disclosure-header=""）返回空串而不是 null，
+    // mock 必须保持一致，否则属性存在性判断会全部落空。
+    return this.attributes.has(k) ? this.attributes.get(k) : null;
   }
 
   appendChild(child) {
@@ -132,6 +134,12 @@ class MockNode {
         }
       } else if (selector === '[data-variant="think"]') {
         if (node.getAttribute('data-variant') === 'think') {
+          res.push(node);
+        }
+      } else if (/^\[data-[a-z-]+\]$/.test(selector)) {
+        // 属性存在性选择器，如 [data-disclosure-row]
+        const attr = selector.slice(1, -1);
+        if (node.attributes && node.attributes.has(attr)) {
           res.push(node);
         }
       } else if (selector === 'p, li') {
@@ -724,4 +732,207 @@ test('8. Register exactly one client module id matching the bundle name', async 
     ['dsh-thinking-timestamp'],
     'client bundle must register exactly one id equal to the package/bundle name, got: ' + ids.join(', ')
   );
+});
+
+test('9. Pill mounts into [data-disclosure-header], never into the overflow-hidden row', async () => {
+  setupMockDom();
+
+  let registeredModule = null;
+  globalThis.window.__ModuleLoader__ = {
+    load(def) {
+      registeredModule = def.factory();
+    }
+  };
+  await import('../lib/client.js?v=9');
+
+  // 还原 DSH 原生 DisclosureRow 的真实层级：
+  //   thinkEl
+  //     div[data-disclosure-header]._header_*      ← display:flex，无 overflow
+  //       div[data-disclosure-row]._row_*          ← flex:1 1 auto + overflow:hidden
+  //         span.leading
+  //         span.TextShimmer._root_* (width:max-content)
+  //           span.title / span.summary
+  //     div.thinkBody
+  const thinkEl = document.createElement('div');
+  thinkEl.setAttribute('data-variant', 'think');
+  thinkEl.setAttribute('data-state', 'ok');
+
+  const header = document.createElement('div');
+  header.className = '_header_l4nv8_16';
+  header.setAttribute('data-disclosure-header', '');
+
+  const row = document.createElement('div');
+  row.className = '_row_l4nv8_26';
+  row.setAttribute('data-disclosure-row', '');
+  header.appendChild(row);
+
+  const leading = document.createElement('span');
+  leading.className = '_leading_l4nv8_20';
+  row.appendChild(leading);
+
+  const shimmer = document.createElement('span');
+  shimmer.className = '_root_1rdzk_1';
+  row.appendChild(shimmer);
+
+  const title = document.createElement('span');
+  title.className = 'VJlF5q_title';
+  title.textContent = '已深度思考';
+  shimmer.appendChild(title);
+
+  const summary = document.createElement('span');
+  summary.className = 'VJlF5q_summary';
+  summary.textContent = '用户想知道时间戳为什么消失';
+  shimmer.appendChild(summary);
+
+  thinkEl.appendChild(header);
+
+  const thinkBody = document.createElement('div');
+  thinkBody.className = 'VJlF5q_thinkBody';
+  const p1 = document.createElement('p');
+  p1.textContent = '先确认渲染层级。';
+  thinkBody.appendChild(p1);
+  thinkEl.appendChild(thinkBody);
+
+  document.body.appendChild(thinkEl);
+
+  const cleanups = [];
+  registeredModule.apply({ effect: (fn) => { cleanups.push(fn()); } });
+
+  const pill = document.querySelectorAll('.dsh-think-time-pill')[0];
+  assert.ok(pill, 'pill must be created');
+
+  // 核心不变量：药丸必须挂在 header 上（官方 headerAccessory 槽位）
+  assert.equal(
+    pill.parentNode,
+    header,
+    'pill must be a child of [data-disclosure-header], otherwise the row\'s overflow:hidden clips it'
+  );
+
+  // 且绝不能落在 overflow:hidden 的 row 里
+  assert.notEqual(pill.parentNode, row, 'pill must never be appended into the overflow-hidden row');
+
+  // row 内不得出现药丸，避免被裁切
+  assert.equal(row.querySelectorAll('.dsh-think-time-pill').length, 0);
+
+  // 文本本身仍然正确
+  assert.match(pill.textContent, /⏱️ \d{2}:\d{2}:\d{2}/);
+
+  // 标题原文快照不能把药丸文本吃进去（耗时嗅探的独立性）
+  assert.ok(
+    !title.textContent.includes('⏱️'),
+    'native title text must stay free of the injected timestamp'
+  );
+
+  // 段落时间戳照常工作
+  assert.match(p1.getAttribute('data-dsh-think-time'), /\d{2}:\d{2}:\d{2}/);
+
+  for (const fn of cleanups) fn();
+});
+
+test('10. Legacy DOM without [data-disclosure-header] still gets a pill', async () => {
+  setupMockDom();
+
+  let registeredModule = null;
+  globalThis.window.__ModuleLoader__ = {
+    load(def) {
+      registeredModule = def.factory();
+    }
+  };
+  await import('../lib/client.js?v=10');
+
+  // 老结构：只有 row，没有 header 包装
+  const thinkEl = document.createElement('div');
+  thinkEl.setAttribute('data-variant', 'think');
+  thinkEl.setAttribute('data-state', 'running');
+
+  const row = document.createElement('div');
+  row.className = 'VJlF5q_row';
+  const title = document.createElement('div');
+  title.className = 'VJlF5q_title';
+  title.textContent = '思考中';
+  row.appendChild(title);
+  thinkEl.appendChild(row);
+
+  document.body.appendChild(thinkEl);
+
+  const cleanups = [];
+  registeredModule.apply({ effect: (fn) => { cleanups.push(fn()); } });
+
+  const pill = document.querySelectorAll('.dsh-think-time-pill')[0];
+  assert.ok(pill, 'pill must still be created for legacy DOM');
+  assert.equal(pill.parentNode, row, 'legacy fallback appends to the row itself');
+  assert.equal(pill.getAttribute('data-state'), 'running');
+
+  for (const fn of cleanups) fn();
+});
+
+test('11. Pill self-heals after React rebuilds the header subtree', async () => {
+  setupMockDom();
+
+  let registeredModule = null;
+  globalThis.window.__ModuleLoader__ = {
+    load(def) {
+      registeredModule = def.factory();
+    }
+  };
+  await import('../lib/client.js?v=11');
+
+  function buildRow() {
+    const thinkEl = document.createElement('div');
+    thinkEl.setAttribute('data-variant', 'think');
+    thinkEl.setAttribute('data-state', 'ok');
+
+    const header = document.createElement('div');
+    header.className = '_header_l4nv8_16';
+    header.setAttribute('data-disclosure-header', '');
+
+    const row = document.createElement('div');
+    row.className = '_row_l4nv8_26';
+    row.setAttribute('data-disclosure-row', '');
+    header.appendChild(row);
+
+    const title = document.createElement('span');
+    title.className = 'VJlF5q_title';
+    title.textContent = '已深度思考';
+    row.appendChild(title);
+
+    thinkEl.appendChild(header);
+    return { thinkEl, header, row };
+  }
+
+  const first = buildRow();
+  document.body.appendChild(first.thinkEl);
+
+  const cleanups = [];
+  registeredModule.apply({ effect: (fn) => { cleanups.push(fn()); } });
+
+  const pillBefore = first.header.querySelector('.dsh-think-time-pill');
+  assert.ok(pillBefore, 'pill must exist before the rebuild');
+  const stampBefore = pillBefore.textContent;
+  assert.match(stampBefore, /⏱️ \d{2}:\d{2}:\d{2}/);
+
+  // 模拟 React 卸载并重建整个 header 子树（药丸随之消失），
+  // 但 data-state 仍是 ok —— 命中 headSettled 快速路径。
+  document.body.removeChild(first.thinkEl);
+
+  const second = buildRow();
+  // 保留同一个持久键来源，模拟同一条消息
+  second.thinkEl.setAttribute('data-chat-flow-key', 'msg-selfheal');
+  document.body.appendChild(second.thinkEl);
+
+  // 触发一次扫描
+  globalThis.__observer_notify({
+    type: 'childList',
+    target: document.body,
+    addedNodes: [second.thinkEl],
+    removedNodes: []
+  });
+  await new Promise((r) => setTimeout(r, 60));
+
+  const pillAfter = second.header.querySelector('.dsh-think-time-pill');
+  assert.ok(pillAfter, 'pill must be re-injected after the header subtree is rebuilt');
+  assert.equal(pillAfter.parentNode, second.header, 'healed pill must land in the header again');
+  assert.match(pillAfter.textContent, /⏱️ \d{2}:\d{2}:\d{2}/);
+
+  for (const fn of cleanups) fn();
 });
